@@ -1,60 +1,74 @@
-import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from dotenv import load_dotenv
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+import asyncio
 
-load_dotenv()
+API_TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"  # Твой токен бота
+MANAGER_CHAT_ID = -1003098912428  # ID закрытого чата для заявок
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = int(os.getenv("CHAT_ID"))
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+# Описание состояний для FSM
+class Form(StatesGroup):
+    name = State()
+    object_name = State()
+    material_tool = State()
+    date_needed = State()
 
-# Клавиатура для выбора срока
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="⏰ Терміново до 1 години")],
-        [KeyboardButton(text="🕕 До 18:00")],
-        [KeyboardButton(text="🌤 Завтра до 12")]
-    ],
-    resize_keyboard=True
-)
-
-# Список вопросов
-questions = [
-    "Ваше ім'я 🖊",
-    "На який об'єкт потрібно матеріал/інструмент? 🏗",
-    "На коли потрібно? ⏳"
-]
-
-# Словарь для хранения ответов
-user_answers = {}
-
+# Стартовая команда - начинает опрос
 @dp.message(Command("start"))
-async def start(message: types.Message):
-    user_answers[message.from_user.id] = []
-    await message.answer("Привіт! Почнемо заповнювати заявку.")
-    await message.answer(questions[0])
+async def cmd_start(message: types.Message, state: FSMContext):
+    await message.answer("Ваше ім'я 🖊️")
+    await Form.name.set()
 
-@dp.message()
-async def answer(message: types.Message):
-    user_id = message.from_user.id
+# Получение имени
+@dp.message(Form.name)
+async def process_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("На який об'єкт потрібно матеріал/інструмент? 🏗️")
+    await Form.object_name.set()
 
-    if user_id not in user_answers:
-        await message.answer("Натисніть /start для початку.")
-        return
+# Получение объекта
+@dp.message(Form.object_name)
+async def process_object(message: types.Message, state: FSMContext):
+    await state.update_data(object_name=message.text)
+    await message.answer("Який матеріал або інструмент потрібен? 🔧")
+    await Form.material_tool.set()
 
-    user_answers[user_id].append(message.text)
+# Получение материала/инструмента
+@dp.message(Form.material_tool)
+async def process_material_tool(message: types.Message, state: FSMContext):
+    await state.update_data(material_tool=message.text)
+    await message.answer(
+        "На коли потрібно? ⏰\n"
+        "⚡ Терміново до 1 години\n"
+        "🕕 До 18:00\n"
+        "🌤️ Завтра до 12"
+    )
+    await Form.date_needed.set()
 
-    if len(user_answers[user_id]) < len(questions):
-        await message.answer(questions[len(user_answers[user_id])])
-    else:
-        # Отправка всех ответов в общий чат
-        answers_text = "\n".join(
-            f"{q} {a}" for q, a in zip(questions, user_answers[user_id])
-        )
-        await bot.send_message(CHAT_ID, f"Нова заявка:\n\n{answers_text}")
-        await message.answer("Дякуємо! Ваша заявка надіслана.")
-        user_answers.pop(user_id)
+# Получение времени и отправка заявки в закрытый чат
+@dp.message(Form.date_needed)
+async def process_date_needed(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    text = (
+        f"Нова заявка:\n"
+        f"Ім'я: {data['name']}\n"
+        f"Об'єкт: {data['object_name']}\n"
+        f"Матеріал/Інструмент: {data['material_tool']}\n"
+        f"На коли: {message.text}"
+    )
+    await bot.send_message(MANAGER_CHAT_ID, text)
+    await message.answer("Заявка відправлена ✅")
+    await state.clear()
+
+# Запуск бота
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
