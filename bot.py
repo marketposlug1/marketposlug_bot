@@ -1,72 +1,77 @@
-import os
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiohttp import web
-import threading
+from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# ===== Настройки =====
-API_TOKEN = os.getenv("API_TOKEN")   # Токен бота
-MANAGER_CHAT_ID = int(os.getenv("MANAGER_CHAT_ID"))  # ID чата для заявок
+TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"
+MANAGER_CHAT_ID = -1003098912428  # ID чата менеджера
 
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ===== Логика бота =====
-@dp.message(commands=["start"])
-async def start_handler(message: types.Message):
-    await message.answer("Привіт! 👋\nДавайте оформимо заявку.\nВведіть, будь ласка, ваше ім'я:")
+# Состояния опроса
+user_data = {}
 
-    @dp.message()
-    async def name_handler(msg: types.Message):
-        user_data = {"name": msg.text}
+# Вопросы
+questions = [
+    "Ваше ім'я 📝",
+    "На який об'єкт потрібно матеріал/інструмент? 🏗️",
+    "На коли потрібно? ⏰",
+    "Варіанти терміну:"
+]
 
-        await msg.answer("На який об'єкт потрібен матеріал/інструмент? 🏗️")
+# Варианты ответа на последний вопрос
+deadline_buttons = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Терміново до 1 години ⏱️")],
+        [KeyboardButton(text="До 18:00 🕕")],
+        [KeyboardButton(text="Завтра до 🌤️")]
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=True
+)
 
-        @dp.message()
-        async def object_handler(msg2: types.Message):
-            user_data["object"] = msg2.text
+# Запуск бота
+@dp.message(Command("start"))
+async def start(message: types.Message):
+    user_id = message.from_user.id
+    user_data[user_id] = {"step": 0, "answers": []}
+    await message.answer("Привіт! Давай заповнимо заявку для матеріалів/інструментів.")
+    await message.answer(questions[0])
 
-            kb = ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton("⏰ Терміново до 1 години")],
-                    [KeyboardButton("🕕 До 18:00")],
-                    [KeyboardButton("🌤️ Завтра до 12")]
-                ],
-                resize_keyboard=True,
-                one_time_keyboard=True
-            )
-            await msg2.answer("На коли потрібно? 📅", reply_markup=kb)
+@dp.message()
+async def handle_message(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        await message.answer("Натисніть /start щоб почати заповнення заявки.")
+        return
 
-            @dp.message()
-            async def deadline_handler(msg3: types.Message):
-                user_data["deadline"] = msg3.text
+    step = user_data[user_id]["step"]
+    user_data[user_id]["answers"].append(message.text)
 
-                text = (
-                    f"📌 Нова заявка:\n\n"
-                    f"👤 Ім'я: {user_data['name']}\n"
-                    f"🏗️ Об'єкт: {user_data['object']}\n"
-                    f"⏳ Термін: {user_data['deadline']}"
-                )
-
-                await bot.send_message(MANAGER_CHAT_ID, text)
-                await msg3.answer("✅ Ваша заявка прийнята!", reply_markup=ReplyKeyboardRemove())
-
-# ===== Мини веб-сервер для Render =====
-async def handle(request):
-    return web.Response(text="Bot is alive ✅")
-
-app = web.Application()
-app.router.add_get("/", handle)
-
-def run_web():
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
-
-threading.Thread(target=run_web).start()
-
-# ===== Запуск =====
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    if step == 0:
+        # Переход на следующий вопрос
+        user_data[user_id]["step"] += 1
+        await message.answer(questions[1])
+    elif step == 1:
+        user_data[user_id]["step"] += 1
+        await message.answer(questions[2])
+    elif step == 2:
+        user_data[user_id]["step"] += 1
+        await message.answer("Оберіть варіант терміну:", reply_markup=deadline_buttons)
+    elif step == 3:
+        user_data[user_id]["step"] += 1
+        user_data[user_id]["answers"].append(message.text)
+        # Отправка заявки в чат менеджера
+        answers = user_data[user_id]["answers"]
+        text = (
+            f"Нова заявка від {answers[0]}:\n"
+            f"Об'єкт: {answers[1]}\n"
+            f"На коли: {answers[2]}\n"
+            f"Термін: {answers[3]}"
+        )
+        await bot.send_message(MANAGER_CHAT_ID, text)
+        await message.answer("Дякуємо! Ваша заявка надіслана ✅", reply_markup=types.ReplyKeyboardRemove())
+        # Очистка данных пользователя
+        user_data.pop(user_id)
