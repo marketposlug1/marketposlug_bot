@@ -1,2 +1,6 @@
-aiogram==3.0.0
-aiohttp==3.8.5
+aiogram>=3.0.0
+aiohttp>=3.8.0
+requests
+pip>=23.0
+setuptools>=67.0
+wheel
