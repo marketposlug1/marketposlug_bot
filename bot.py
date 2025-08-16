@@ -1,16 +1,18 @@
-import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+import asyncio
+
+logging.basicConfig(level=logging.INFO)
 
 TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"
-MANAGER_CHAT_ID = -1003098912428  # ID чата менеджера
+MANAGER_CHAT_ID = -1003098912428  # Ваш чат менеджера
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Состояния опроса
+# Данные пользователей
 user_data = {}
 
 # Вопросы
@@ -18,10 +20,9 @@ questions = [
     "Ваше ім'я 📝",
     "На який об'єкт потрібно матеріал/інструмент? 🏗️",
     "На коли потрібно? ⏰",
-    "Варіанти терміну:"
 ]
 
-# Варианты ответа на последний вопрос
+# Кнопки для последнего вопроса
 deadline_buttons = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Терміново до 1 години ⏱️")],
@@ -32,7 +33,7 @@ deadline_buttons = ReplyKeyboardMarkup(
     one_time_keyboard=True
 )
 
-# Запуск бота
+# /start
 @dp.message(Command("start"))
 async def start(message: types.Message):
     user_id = message.from_user.id
@@ -40,6 +41,7 @@ async def start(message: types.Message):
     await message.answer("Привіт! Давай заповнимо заявку для матеріалів/інструментів.")
     await message.answer(questions[0])
 
+# Основной обработчик
 @dp.message()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
@@ -51,7 +53,6 @@ async def handle_message(message: types.Message):
     user_data[user_id]["answers"].append(message.text)
 
     if step == 0:
-        # Переход на следующий вопрос
         user_data[user_id]["step"] += 1
         await message.answer(questions[1])
     elif step == 1:
@@ -63,7 +64,6 @@ async def handle_message(message: types.Message):
     elif step == 3:
         user_data[user_id]["step"] += 1
         user_data[user_id]["answers"].append(message.text)
-        # Отправка заявки в чат менеджера
         answers = user_data[user_id]["answers"]
         text = (
             f"Нова заявка від {answers[0]}:\n"
@@ -72,6 +72,11 @@ async def handle_message(message: types.Message):
             f"Термін: {answers[3]}"
         )
         await bot.send_message(MANAGER_CHAT_ID, text)
-        await message.answer("Дякуємо! Ваша заявка надіслана ✅", reply_markup=types.ReplyKeyboardRemove())
-        # Очистка данных пользователя
+        await message.answer("Дякуємо! Ваша заявка надіслана ✅", reply_markup=ReplyKeyboardRemove())
         user_data.pop(user_id)
+
+if __name__ == "__main__":
+    import asyncio
+    from aiogram import executor
+
+    asyncio.run(dp.start_polling(bot))
