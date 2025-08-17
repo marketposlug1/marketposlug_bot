@@ -9,7 +9,6 @@ from telegram.ext import (
 import asyncio
 from datetime import datetime
 from aiohttp import web
-from telegram.error import Forbidden
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -17,10 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"
-ADMIN_CHAT_ID = -1003098912428
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0')
+ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '-1003098912428'))
 PORT = int(os.getenv('PORT', 8000))
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')  # Например 'https://marketposlug-bot.onrender.com'
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://marketposlug-bot.onrender.com')  # Без завершающего слеша
 
 worker_responses = {}
 
@@ -30,137 +29,114 @@ class TelegramWorkerBot:
         self.setup_handlers()
 
     def setup_handlers(self):
-        # Важно: CallbackQueryHandler должен идти раньше MessageHandler
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        try:
-            welcome_text = (
-                "Вас вітає Марке Послуг №1! 😊\n\n"
-                "Залиште заявку для отримання всього, що вам необхідно!"
-            )
-            worker_responses[update.effective_user.id] = {
-                'stage': 'ask_name',
-                'data': {},
-                'timestamp': datetime.now()
-            }
-            await update.message.reply_text(welcome_text)
-            await update.message.reply_text("Напишіть, будь ласка, ваше ім'я 📝")
-        except Forbidden:
-            logger.warning(f"Пользователь {update.effective_user.id} заблокировал бота.")
+        worker_responses[update.effective_user.id] = {
+            'stage': 'ask_name',
+            'data': {},
+            'timestamp': datetime.now()
+        }
+        await update.message.reply_text(
+            "Вас вітає Марке Послуг №1! 😊\n\n"
+            "Залиште заявку для отримання всього, що вам необхідно!\n\n"
+            "Напишіть, будь ласка, ваше ім'я 📝"
+        )
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        help_text = (
-            "🤖 **Worker Request Bot Help**\n\n"
-            "**Команди:**\n"
-            "• /start - Почати роботу з ботом\n"
-            "• /help - Допомога\n\n"
-            "**Як це працює:**\n"
-            "1. Введіть своє ім'я\n"
-            "2. Відповідайте на питання\n"
-            "3. Заявка надійде адміністратору\n\n"
-            "Просто надсилайте повідомлення, щоб почати!"
+        await update.message.reply_text(
+            "Для початку надішліть /start.\n"
+            "Просто відповідайте на запитання, що з’являться.\n"
+            "По кнопках обирайте варіанти."
         )
-        await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
-        message_text = update.message.text.strip()
+        text = update.message.text.strip()
 
         if user_id not in worker_responses:
-            await update.message.reply_text("Будь ласка, надішліть /start, щоб почати.")
+            await update.message.reply_text("Будь ласка, надішліть /start щоб почати.")
             return
 
-        user_session = worker_responses[user_id]
-        stage = user_session['stage']
+        stage = worker_responses[user_id]['stage']
+        data = worker_responses[user_id]['data']
 
         if stage == 'ask_name':
-            user_session['data']['name'] = message_text
-            user_session['stage'] = 'ask_object'
-            await update.message.reply_text("Ваше ім'я прийнято! 😊\n\nНа який об’єкт потрібно матеріал/інструмент? 🏗️")
+            data['name'] = text
+            worker_responses[user_id]['stage'] = 'ask_object'
+            await update.message.reply_text("На який об’єкт потрібно матеріал/інструмент? 🏗️")
 
         elif stage == 'ask_object':
-            user_session['data']['object'] = message_text
-            user_session['stage'] = 'ask_material'
+            data['object'] = text
+            worker_responses[user_id]['stage'] = 'ask_material'
             await update.message.reply_text("Який матеріал/інструмент потрібен? 🧰")
 
         elif stage == 'ask_material':
-            user_session['data']['material'] = message_text
-            user_session['stage'] = 'ask_deadline'
-
+            data['material'] = text
+            worker_responses[user_id]['stage'] = 'ask_deadline'
             keyboard = [
                 [InlineKeyboardButton("🔴 Терміново до 1 години", callback_data="deadline_urgent")],
                 [InlineKeyboardButton("🟡 До 18:00", callback_data="deadline_today")],
-                [InlineKeyboardButton("🟢 Завтра до 12:00", callback_data="deadline_tomorrow")]
+                [InlineKeyboardButton("🟢 Завтра до 12:00", callback_data="deadline_tomorrow")],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text("На коли це потрібно? ⏰", reply_markup=reply_markup)
 
         elif stage == 'ask_additional':
-            user_session['data']['additional_info'] = message_text
+            data['additional_info'] = text
             await self.send_request(update, context, user_id)
+            del worker_responses[user_id]
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()  # Обязательно подтверждайте получение callback!
+        await query.answer()  # Обязательно!
 
         user_id = query.from_user.id
         data = query.data
 
         if user_id not in worker_responses:
-            await query.edit_message_text("Сесія втрачена. Будь ласка, надішліть /start щоб почати заново.")
+            await query.edit_message_text("Сесія втрачена. Почніть заново /start.")
             return
 
         if data.startswith("deadline_"):
-            deadline_map = {
+            deadline_options = {
                 "deadline_urgent": "Терміново до 1 години 🔴",
                 "deadline_today": "До 18:00 🟡",
                 "deadline_tomorrow": "Завтра до 12:00 🟢"
             }
-            selected_deadline = deadline_map.get(data, "Не вказано")
-            worker_responses[user_id]['data']['deadline'] = selected_deadline
+            selected = deadline_options.get(data, "Не вказано")
+            worker_responses[user_id]['data']['deadline'] = selected
             worker_responses[user_id]['stage'] = 'ask_additional'
 
             await query.edit_message_text(
-                f"Ви вибрали: {selected_deadline}\n\n"
+                f"Ви вибрали: {selected}\n\n"
                 "Додаткова інформація або напишіть 'нема' для завершення:"
             )
 
     async def send_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
         data = worker_responses[user_id]['data']
-        timestamp = worker_responses[user_id]['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
-        user = update.effective_user
 
-        admin_message = (
-            "📬 **Нова заявка на послугу**\n\n"
-            f"👤 **Ім'я:** {data.get('name', '-')}\n"
-            f"🏗️ **Об'єкт:** {data.get('object', '-')}\n"
-            f"🧰 **Матеріал/інструмент:** {data.get('material', '-')}\n"
-            f"⏰ **Термін:** {data.get('deadline', '-')}\n"
-            f"ℹ️ **Додаткова інформація:** {data.get('additional_info', '-')}\n\n"
-            f"🆔 **ID користувача:** {user_id}\n"
-            f"📅 **Подано:** {timestamp}\n\n"
-            "---\n"
-            f"Користувач: {user.first_name} {user.last_name or ''} (@{user.username or 'немає_юзернейма'})"
+        message = (
+            f"📢 Нова заявка:\n"
+            f"👤 Ім'я: {data.get('name', '-')}\n"
+            f"🏗️ Об'єкт: {data.get('object', '-')}\n"
+            f"🧰 Матеріал/Інструмент: {data.get('material', '-')}\n"
+            f"⏰ Термін: {data.get('deadline', '-')}\n"
+            f"ℹ️ Додаткова інформація: {data.get('additional_info', '-')}"
         )
 
         try:
-            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_message, parse_mode='Markdown')
-            await update.message.reply_text(
-                "✅ **Заявка успішно надіслана!**\n\n"
-                "Дякуємо! Чекайте на відповідь від адміністратора.",
-                parse_mode='Markdown'
-            )
-            del worker_responses[user_id]
+            await context.bot.send_message(ADMIN_CHAT_ID, message)
+            await update.message.reply_text("✅ Ваша заявка успішно відправлена. Дякуємо!")
         except Exception as e:
-            logger.error(f"Error sending to admin: {e}")
-            await update.message.reply_text("❌ Сталася помилка при надсиланні заявки. Спробуйте пізніше.")
+            logger.error(f"Помилка відправки заявки: {e}")
+            await update.message.reply_text("❌ Помилка відправки заявки. Спробуйте пізніше.")
 
     async def run_webhook(self):
-        from aiohttp import web
+        app = web.Application()
 
         async def handle_post(request):
             data = await request.json()
@@ -169,12 +145,11 @@ class TelegramWorkerBot:
             return web.Response(text="OK")
 
         async def handle_get(request):
-            return web.Response(text="Webhook endpoint is working!")
+            return web.Response(text="Webhook працює")
 
         async def handle_health(request):
             return web.Response(text="OK")
 
-        app = web.Application()
         app.router.add_post('/webhook', handle_post)
         app.router.add_get('/webhook', handle_get)
         app.router.add_get('/health', handle_health)
@@ -186,45 +161,36 @@ class TelegramWorkerBot:
 
         webhook_url = f"{WEBHOOK_URL}/webhook"
         await self.application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook set: {webhook_url}")
+        logger.info(f"Webhook встановлено: {webhook_url}")
 
         await self.application.initialize()
         await self.application.start()
-
-        logger.info("Bot started with webhook")
+        logger.info("Бот запущено на webhook")
 
         while True:
-            await asyncio.sleep(3600)
+            await asyncio.sleep(60)
 
     async def run_polling(self):
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling()
-        logger.info("Bot started with polling")
+        logger.info("Бот запущено на polling")
         stop_event = asyncio.Event()
 
+        import signal
         def stop():
             stop_event.set()
 
-        import signal
         for s in (signal.SIGINT, signal.SIGTERM):
             signal.signal(s, lambda signum, frame: stop())
         await stop_event.wait()
 
 async def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN environment variable is required!")
-        return
-    if not ADMIN_CHAT_ID:
-        logger.error("ADMIN_CHAT_ID environment variable is required!")
-        return
-
     bot = TelegramWorkerBot()
-
     if WEBHOOK_URL:
         await bot.run_webhook()
     else:
         await bot.run_polling()
 
-if __name__ == '__main__':
+if __name__=='__main__':
     asyncio.run(main())
