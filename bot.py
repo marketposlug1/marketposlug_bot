@@ -6,16 +6,17 @@ import asyncio
 from datetime import datetime
 from aiohttp import web
 
-# Конфиг и логирование
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"
 ADMIN_CHAT_ID = -1003098912428
 PORT = int(os.getenv('PORT', 8000))
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')  # Должен быть https://yourapp.onrender.com
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')  # Например https://yourapp.onrender.com
+
 
 worker_responses = {}
 
@@ -109,3 +110,108 @@ class TelegramWorkerBot:
             deadline_map = {
                 "deadline_urgent": "Терміново до 1 години 🔴",
                 "deadline_today": "До 18:00 🟡",
+                "deadline_tomorrow": "Завтра до 12:00 🟢"
+            }
+            selected_deadline = deadline_map.get(data, "Не вказано")
+            worker_responses[user_id]['data']['deadline'] = selected_deadline
+            worker_responses[user_id]['stage'] = 'ask_additional'
+            await query.edit_message_text(
+                f"Ви вибрали: {selected_deadline}\n\n"
+                "Додаткова інформація або напишіть 'нема' для завершення:"
+            )
+
+    async def send_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+        data = worker_responses[user_id]['data']
+        timestamp = worker_responses[user_id]['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
+        user = update.effective_user
+
+        admin_message = (
+            "📬 **Нова заявка на послугу**\n\n"
+            f"👤 **Ім'я:** {data.get('name', '-')}\n"
+            f"🏗️ **Об'єкт:** {data.get('object', '-')}\n"
+            f"🧰 **Матеріал/інструмент:** {data.get('material', '-')}\n"
+            f"⏰ **Термін:** {data.get('deadline', '-')}\n"
+            f"ℹ️ **Додаткова інформація:** {data.get('additional_info', '-')}\n\n"
+            f"🆔 **ID користувача:** {user_id}\n"
+            f"📅 **Подано:** {timestamp}\n\n"
+            f"---\n"
+            f"Користувач: {user.first_name} {user.last_name or ''} (@{user.username or 'немає_юзернейма'})"
+        )
+
+        try:
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_message, parse_mode='Markdown')
+            await update.message.reply_text(
+                "✅ **Заявка успішно надіслана!**\n\n"
+                "Дякуємо! Чекайте на відповідь від адміністратора.",
+                parse_mode='Markdown'
+            )
+            del worker_responses[user_id]
+        except Exception as e:
+            logger.error(f"Error sending to admin: {e}")
+            await update.message.reply_text("❌ Сталася помилка при надсиланні заявки. Спробуйте пізніше.")
+
+    async def run_webhook(self):
+        from aiohttp import web
+
+        async def handle_post(request):
+            data = await request.json()
+            update = Update.de_json(data, self.application.bot)
+            await self.application.update_queue.put(update)
+            return web.Response(text="OK")
+
+        async def handle_get(request):
+            return web.Response(text="Webhook endpoint is working!")
+
+        app = web.Application()
+        app.router.add_post('/webhook', handle_post)
+        app.router.add_get('/webhook', handle_get)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', PORT)
+        await site.start()
+
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        await self.application.bot.set_webhook(webhook_url)
+        logger.info(f"Webhook set: {webhook_url}")
+
+        await self.application.initialize()
+        await self.application.start()
+
+        logger.info("Bot started with webhook")
+
+        while True:
+            await asyncio.sleep(3600)
+
+    async def run_polling(self):
+        await self.application.initialize()
+        await self.application.start()
+        await self.application.updater.start_polling()
+        logger.info("Bot started with polling")
+        stop_event = asyncio.Event()
+
+        def stop():
+            stop_event.set()
+
+        import signal
+        for s in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(s, lambda signum, frame: stop())
+        await stop_event.wait()
+
+async def main():
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN environment variable is required!")
+        return
+    if not ADMIN_CHAT_ID:
+        logger.error("ADMIN_CHAT_ID environment variable is required!")
+        return
+
+    bot = TelegramWorkerBot()
+
+    if WEBHOOK_URL:
+        await bot.run_webhook()
+    else:
+        await bot.run_polling()
+
+if __name__ == '__main__':
+    asyncio.run(main())
