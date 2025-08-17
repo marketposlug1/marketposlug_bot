@@ -16,10 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0')
-ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '-1003098912428'))
+BOT_TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"
+ADMIN_CHAT_ID = -1003098912428
 PORT = int(os.getenv('PORT', 8000))
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://marketposlug-bot.onrender.com')  # Без завершающего слеша
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://marketposlug-bot.onrender.com')
 
 worker_responses = {}
 
@@ -35,7 +35,8 @@ class TelegramWorkerBot:
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        worker_responses[update.effective_user.id] = {
+        user_id = update.effective_user.id
+        worker_responses[user_id] = {
             'stage': 'ask_name',
             'data': {},
             'timestamp': datetime.now()
@@ -49,7 +50,7 @@ class TelegramWorkerBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Для початку надішліть /start.\n"
-            "Просто відповідайте на запитання, що з’являться.\n"
+            "Просто відповідайте на запитання, що з'являться.\n"
             "По кнопках обирайте варіанти."
         )
 
@@ -67,7 +68,7 @@ class TelegramWorkerBot:
         if stage == 'ask_name':
             data['name'] = text
             worker_responses[user_id]['stage'] = 'ask_object'
-            await update.message.reply_text("На який об’єкт потрібно матеріал/інструмент? 🏗️")
+            await update.message.reply_text("На який об'єкт потрібно матеріал/інструмент? 🏗️")
 
         elif stage == 'ask_object':
             data['object'] = text
@@ -92,10 +93,13 @@ class TelegramWorkerBot:
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()  # Обязательно!
-
         user_id = query.from_user.id
         data = query.data
+        
+        logger.info(f"Button clicked by user {user_id}: {data}")
+        
+        # Answer the callback query FIRST
+        await query.answer()
 
         if user_id not in worker_responses:
             await query.edit_message_text("Сесія втрачена. Почніть заново /start.")
@@ -136,13 +140,25 @@ class TelegramWorkerBot:
             await update.message.reply_text("❌ Помилка відправки заявки. Спробуйте пізніше.")
 
     async def run_webhook(self):
+        # Initialize the application first
+        await self.application.initialize()
+        await self.application.start()
+        
         app = web.Application()
 
         async def handle_post(request):
-            data = await request.json()
-            update = Update.de_json(data, self.application.bot)
-            await self.application.update_queue.put(update)
-            return web.Response(text="OK")
+            try:
+                data = await request.json()
+                logger.info(f"Received webhook data: {data}")
+                update = Update.de_json(data, self.application.bot)
+                
+                # Process the update through the application
+                await self.application.process_update(update)
+                
+                return web.Response(text="OK")
+            except Exception as e:
+                logger.error(f"Error processing webhook: {e}")
+                return web.Response(text="ERROR", status=500)
 
         async def handle_get(request):
             return web.Response(text="Webhook працює")
@@ -153,6 +169,7 @@ class TelegramWorkerBot:
         app.router.add_post('/webhook', handle_post)
         app.router.add_get('/webhook', handle_get)
         app.router.add_get('/health', handle_health)
+        app.router.add_get('/', handle_health)  # For UptimeRobot
 
         runner = web.AppRunner(app)
         await runner.setup()
@@ -162,35 +179,21 @@ class TelegramWorkerBot:
         webhook_url = f"{WEBHOOK_URL}/webhook"
         await self.application.bot.set_webhook(webhook_url)
         logger.info(f"Webhook встановлено: {webhook_url}")
-
-        await self.application.initialize()
-        await self.application.start()
         logger.info("Бот запущено на webhook")
 
-        while True:
-            await asyncio.sleep(60)
-
-    async def run_polling(self):
-        await self.application.initialize()
-        await self.application.start()
-        await self.application.updater.start_polling()
-        logger.info("Бот запущено на polling")
-        stop_event = asyncio.Event()
-
-        import signal
-        def stop():
-            stop_event.set()
-
-        for s in (signal.SIGINT, signal.SIGTERM):
-            signal.signal(s, lambda signum, frame: stop())
-        await stop_event.wait()
+        # Keep running
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except KeyboardInterrupt:
+            logger.info("Bot stopped")
+        finally:
+            await self.application.stop()
+            await self.application.shutdown()
 
 async def main():
     bot = TelegramWorkerBot()
-    if WEBHOOK_URL:
-        await bot.run_webhook()
-    else:
-        await bot.run_polling()
+    await bot.run_webhook()
 
-if __name__=='__main__':
+if __name__ == '__main__':
     asyncio.run(main())
