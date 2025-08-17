@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"
 ADMIN_CHAT_ID = -1003098912428
 PORT = int(os.getenv('PORT', 8000))
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')  # Например https://yourapp.onrender.com
-
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')  # Пример: https://yourapp.onrender.com
 
 worker_responses = {}
 
@@ -36,11 +35,7 @@ class TelegramWorkerBot:
             "Вас вітає Марке Послуг №1! 😊\n\n"
             "Залиште заявку для отримання всього, що вам необхідно!"
         )
-        worker_responses[update.effective_user.id] = {
-            'stage': 'ask_name',
-            'data': {},
-            'timestamp': datetime.now()
-        }
+        worker_responses[update.effective_user.id] = {'stage': 'ask_name', 'data': {}, 'timestamp': datetime.now()}
         await update.message.reply_text(welcome_text)
         await update.message.reply_text("Напишіть, будь ласка, ваше ім'я 📝")
 
@@ -97,7 +92,7 @@ class TelegramWorkerBot:
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()
+        await query.answer()  # Обязательно подтверждаем получение
 
         user_id = query.from_user.id
         data = query.data
@@ -115,6 +110,7 @@ class TelegramWorkerBot:
             selected_deadline = deadline_map.get(data, "Не вказано")
             worker_responses[user_id]['data']['deadline'] = selected_deadline
             worker_responses[user_id]['stage'] = 'ask_additional'
+
             await query.edit_message_text(
                 f"Ви вибрали: {selected_deadline}\n\n"
                 "Додаткова інформація або напишіть 'нема' для завершення:"
@@ -134,7 +130,7 @@ class TelegramWorkerBot:
             f"ℹ️ **Додаткова інформація:** {data.get('additional_info', '-')}\n\n"
             f"🆔 **ID користувача:** {user_id}\n"
             f"📅 **Подано:** {timestamp}\n\n"
-            f"---\n"
+            "---\n"
             f"Користувач: {user.first_name} {user.last_name or ''} (@{user.username or 'немає_юзернейма'})"
         )
 
@@ -162,9 +158,13 @@ class TelegramWorkerBot:
         async def handle_get(request):
             return web.Response(text="Webhook endpoint is working!")
 
+        async def handle_health(request):
+            return web.Response(text="OK")
+
         app = web.Application()
         app.router.add_post('/webhook', handle_post)
         app.router.add_get('/webhook', handle_get)
+        app.router.add_get('/health', handle_health)
 
         runner = web.AppRunner(app)
         await runner.setup()
