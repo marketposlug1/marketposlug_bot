@@ -208,16 +208,43 @@ class TelegramWorkerBot:
         logger.info(f"Bot started with webhook: {webhook_url}")
         
         # Keep the application running
-        await self.application.updater.idle()
+        await self.application.start()
+        import signal
+        import asyncio
+        
+        # Wait for shutdown signal
+        stop_event = asyncio.Event()
+        
+        def signal_handler():
+            stop_event.set()
+        
+        # Handle shutdown gracefully
+        for sig in [signal.SIGINT, signal.SIGTERM]:
+            signal.signal(sig, lambda s, f: signal_handler())
+        
+        await stop_event.wait()
     
     async def run_polling(self):
         """Run bot with polling (for local development)"""
-        await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling()
         
         logger.info("Bot started with polling")
-        await self.application.updater.idle()
+        
+        import signal
+        import asyncio
+        
+        # Wait for shutdown signal
+        stop_event = asyncio.Event()
+        
+        def signal_handler():
+            stop_event.set()
+        
+        # Handle shutdown gracefully  
+        for sig in [signal.SIGINT, signal.SIGTERM]:
+            signal.signal(sig, lambda s, f: signal_handler())
+        
+        await stop_event.wait()
 
 async def main():
     """Main function to run the bot"""
