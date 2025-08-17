@@ -189,7 +189,7 @@ class TelegramWorkerBot:
             )
     
     async def run_webhook(self):
-        """Run bot with webhook (for Railway deployment)"""
+        """Run bot with webhook (for Render deployment)"""
         await self.application.initialize()
         await self.application.start()
         
@@ -207,22 +207,17 @@ class TelegramWorkerBot:
         
         logger.info(f"Bot started with webhook: {webhook_url}")
         
-        # Keep the application running
-        await self.application.start()
-        import signal
+        # Keep running - simplified approach
         import asyncio
-        
-        # Wait for shutdown signal
-        stop_event = asyncio.Event()
-        
-        def signal_handler():
-            stop_event.set()
-        
-        # Handle shutdown gracefully
-        for sig in [signal.SIGINT, signal.SIGTERM]:
-            signal.signal(sig, lambda s, f: signal_handler())
-        
-        await stop_event.wait()
+        try:
+            # Just keep the event loop running
+            while True:
+                await asyncio.sleep(3600)  # Sleep for 1 hour, repeat
+        except KeyboardInterrupt:
+            logger.info("Bot stopped")
+        finally:
+            await self.application.stop()
+            await self.application.shutdown()
     
     async def run_polling(self):
         """Run bot with polling (for local development)"""
