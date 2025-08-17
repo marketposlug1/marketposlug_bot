@@ -5,6 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import asyncio
 from datetime import datetime
 from aiohttp import web
+from telegram.error import Forbidden
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8283929613:AAGsabwYn_34VBsEwByIFB3F11OMYQcr-X0"
 ADMIN_CHAT_ID = -1003098912428
 PORT = int(os.getenv('PORT', 8000))
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')  # Пример: https://yourapp.onrender.com
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')  # Например: https://marketposlug-bot.onrender.com
 
 worker_responses = {}
 
@@ -25,19 +26,23 @@ class TelegramWorkerBot:
         self.setup_handlers()
 
     def setup_handlers(self):
+        # CallbackQueryHandler должен идти перед MessageHandler
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        welcome_text = (
-            "Вас вітає Марке Послуг №1! 😊\n\n"
-            "Залиште заявку для отримання всього, що вам необхідно!"
-        )
-        worker_responses[update.effective_user.id] = {'stage': 'ask_name', 'data': {}, 'timestamp': datetime.now()}
-        await update.message.reply_text(welcome_text)
-        await update.message.reply_text("Напишіть, будь ласка, ваше ім'я 📝")
+        try:
+            welcome_text = (
+                "Вас вітає Марке Послуг №1! 😊\n\n"
+                "Залиште заявку для отримання всього, що вам необхідно!"
+            )
+            worker_responses[update.effective_user.id] = {'stage': 'ask_name', 'data': {}, 'timestamp': datetime.now()}
+            await update.message.reply_text(welcome_text)
+            await update.message.reply_text("Напишіть, будь ласка, ваше ім'я 📝")
+        except Forbidden:
+            logger.warning(f"Пользователь {update.effective_user.id} заблокировал бота. Не могу отправить сообщение.")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text = (
@@ -92,7 +97,7 @@ class TelegramWorkerBot:
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer()  # Обязательно подтверждаем получение
+        await query.answer()  # Подтверждаем получение callback
 
         user_id = query.from_user.id
         data = query.data
