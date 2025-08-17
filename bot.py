@@ -235,12 +235,31 @@ class TelegramWorkerBot:
 
         webhook_url = f"{WEBHOOK_URL}/webhook"
         
-        # Set webhook with better error handling
+        # Set webhook with better error handling and forced reset
         try:
-            result = await self.application.bot.set_webhook(webhook_url)
+            # First, delete any existing webhook
+            await self.application.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Deleted existing webhook")
+            
+            # Wait a moment
+            await asyncio.sleep(2)
+            
+            # Set the new webhook
+            result = await self.application.bot.set_webhook(
+                url=webhook_url,
+                drop_pending_updates=True,
+                max_connections=40,
+                allowed_updates=["message", "callback_query"]
+            )
             logger.info(f"Webhook встановлено: {webhook_url}, result: {result}")
+            
+            # Verify webhook was set
+            webhook_info = await self.application.bot.get_webhook_info()
+            logger.info(f"Webhook verification: {webhook_info}")
+            
         except Exception as e:
             logger.error(f"Error setting webhook: {e}")
+            raise
         
         logger.info("Бот запущено на webhook")
 
