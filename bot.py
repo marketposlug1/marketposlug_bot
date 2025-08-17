@@ -198,33 +198,21 @@ class TelegramWorkerBot:
         webhook_url = f"{WEBHOOK_URL}/webhook"
         await self.application.bot.set_webhook(webhook_url)
         
-        # Create a simple health check handler
-        class HealthHandler(web.RequestHandler):
-            def get(self):
-                self.write({"status": "Bot is running!", "webhook": webhook_url})
-        
-        # Start webhook server with health check
+        # Start webhook server
         await self.application.updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
             url_path="/webhook",
-            webhook_url=webhook_url,
-            # Add health check route
-            web_app=web.Application([
-                (r"/", HealthHandler),
-                (r"/health", HealthHandler)
-            ])
+            webhook_url=webhook_url
         )
         
         logger.info(f"Bot started with webhook: {webhook_url}")
-        logger.info(f"Health check available at: {WEBHOOK_URL}/health")
         
-        # Keep running - simplified approach
+        # Keep running
         import asyncio
         try:
-            # Just keep the event loop running
             while True:
-                await asyncio.sleep(3600)  # Sleep for 1 hour, repeat
+                await asyncio.sleep(3600)
         except KeyboardInterrupt:
             logger.info("Bot stopped")
         finally:
