@@ -31,6 +31,7 @@ class TelegramWorkerBot:
     def setup_handlers(self):
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("webhook_info", self.webhook_info_command))
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
@@ -46,6 +47,22 @@ class TelegramWorkerBot:
             "Залиште заявку для отримання всього, що вам необхідно!\n\n"
             "Напишіть, будь ласка, ваше ім'я 📝"
         )
+
+    async def webhook_info_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            webhook_info = await context.bot.get_webhook_info()
+            info_text = (
+                f"🔗 **Webhook Info:**\n"
+                f"URL: `{webhook_info.url}`\n"
+                f"Has Custom Certificate: {webhook_info.has_custom_certificate}\n"
+                f"Pending Update Count: {webhook_info.pending_update_count}\n"
+                f"Last Error Date: {webhook_info.last_error_date}\n"
+                f"Last Error Message: {webhook_info.last_error_message}\n"
+                f"Max Connections: {webhook_info.max_connections}"
+            )
+            await update.message.reply_text(info_text, parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text(f"Error getting webhook info: {e}")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
