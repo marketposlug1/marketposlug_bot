@@ -157,10 +157,17 @@ class TelegramWorkerBot:
 
             logger.info(f"CALLBACK QUERY - User {user_id} selected deadline: {selected}")
 
+            # Create keyboard with submit button
+            keyboard = [
+                [InlineKeyboardButton("📤 Відправити заявку", callback_data="submit_request")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             try:
                 await query.edit_message_text(
                     f"Ви вибрали: {selected}\n\n"
-                    "Додаткова інформація або напишіть 'нема' для завершення:"
+                    "Напишіть додаткову інформацію або натисніть кнопку для відправки заявки:",
+                    reply_markup=reply_markup
                 )
                 logger.info(f"CALLBACK QUERY - Successfully updated message for user {user_id}")
             except Exception as e:
