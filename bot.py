@@ -4,6 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import asyncio
 from datetime import datetime
+from tornado import web
 
 # Configure logging
 logging.basicConfig(
@@ -197,15 +198,26 @@ class TelegramWorkerBot:
         webhook_url = f"{WEBHOOK_URL}/webhook"
         await self.application.bot.set_webhook(webhook_url)
         
-        # Start webhook server
+        # Create a simple health check handler
+        class HealthHandler(web.RequestHandler):
+            def get(self):
+                self.write({"status": "Bot is running!", "webhook": webhook_url})
+        
+        # Start webhook server with health check
         await self.application.updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
             url_path="/webhook",
-            webhook_url=webhook_url
+            webhook_url=webhook_url,
+            # Add health check route
+            web_app=web.Application([
+                (r"/", HealthHandler),
+                (r"/health", HealthHandler)
+            ])
         )
         
         logger.info(f"Bot started with webhook: {webhook_url}")
+        logger.info(f"Health check available at: {WEBHOOK_URL}/health")
         
         # Keep running - simplified approach
         import asyncio
