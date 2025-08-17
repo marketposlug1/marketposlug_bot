@@ -57,6 +57,8 @@ class TelegramWorkerBot:
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         text = update.message.text.strip()
+        
+        logger.info(f"Processing message from user {user_id}: {text}")
 
         if user_id not in worker_responses:
             await update.message.reply_text("Будь ласка, надішліть /start щоб почати.")
@@ -84,6 +86,7 @@ class TelegramWorkerBot:
                 [InlineKeyboardButton("🟢 Завтра до 12:00", callback_data="deadline_tomorrow")],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
+            logger.info(f"Sending keyboard to user {user_id}")
             await update.message.reply_text("На коли це потрібно? ⏰", reply_markup=reply_markup)
 
         elif stage == 'ask_additional':
@@ -96,13 +99,23 @@ class TelegramWorkerBot:
         user_id = query.from_user.id
         data = query.data
         
-        logger.info(f"Button clicked by user {user_id}: {data}")
+        logger.info(f"CALLBACK QUERY - Button clicked by user {user_id}: {data}")
+        logger.info(f"CALLBACK QUERY - Full query object: {query}")
         
-        # Answer the callback query FIRST
-        await query.answer()
+        # Answer the callback query FIRST to stop loading animation
+        try:
+            await query.answer()
+            logger.info(f"CALLBACK QUERY - Successfully answered callback for user {user_id}")
+        except Exception as e:
+            logger.error(f"CALLBACK QUERY - Error answering callback: {e}")
+            return
 
         if user_id not in worker_responses:
-            await query.edit_message_text("Сесія втрачена. Почніть заново /start.")
+            logger.warning(f"CALLBACK QUERY - User {user_id} not found in worker_responses")
+            try:
+                await query.edit_message_text("Сесія втрачена. Почніть заново /start.")
+            except Exception as e:
+                logger.error(f"CALLBACK QUERY - Error editing message: {e}")
             return
 
         if data.startswith("deadline_"):
@@ -115,10 +128,21 @@ class TelegramWorkerBot:
             worker_responses[user_id]['data']['deadline'] = selected
             worker_responses[user_id]['stage'] = 'ask_additional'
 
-            await query.edit_message_text(
-                f"Ви вибрали: {selected}\n\n"
-                "Додаткова інформація або напишіть 'нема' для завершення:"
-            )
+            logger.info(f"CALLBACK QUERY - User {user_id} selected deadline: {selected}")
+
+            try:
+                await query.edit_message_text(
+                    f"Ви вибрали: {selected}\n\n"
+                    "Додаткова інформація або напишіть 'нема' для завершення:"
+                )
+                logger.info(f"CALLBACK QUERY - Successfully updated message for user {user_id}")
+            except Exception as e:
+                logger.error(f"CALLBACK QUERY - Error updating message: {e}")
+                # Fallback: send new message if editing fails
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=f"Ви вибрали: {selected}\n\nДодаткова інформація або напишіть 'нема' для завершення:"
+                )
 
     async def send_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
         data = worker_responses[user_id]['data']
@@ -150,14 +174,30 @@ class TelegramWorkerBot:
             try:
                 data = await request.json()
                 logger.info(f"Received webhook data: {data}")
+                
+                # Enhanced logging for callback queries
+                if 'callback_query' in data:
+                    logger.info(f"WEBHOOK - Callback query detected: {data['callback_query']}")
+                elif 'message' in data:
+                    logger.info(f"WEBHOOK - Regular message detected: {data['message']}")
+                else:
+                    logger.warning(f"WEBHOOK - Unknown update type: {list(data.keys())}")
+                
                 update = Update.de_json(data, self.application.bot)
+                
+                if update is None:
+                    logger.error("WEBHOOK - Failed to parse update from JSON")
+                    return web.Response(text="ERROR: Failed to parse update", status=400)
+                
+                logger.info(f"WEBHOOK - Successfully parsed update: {update.update_id}")
                 
                 # Process the update through the application
                 await self.application.process_update(update)
+                logger.info(f"WEBHOOK - Successfully processed update: {update.update_id}")
                 
                 return web.Response(text="OK")
             except Exception as e:
-                logger.error(f"Error processing webhook: {e}")
+                logger.error(f"WEBHOOK - Error processing webhook: {e}", exc_info=True)
                 return web.Response(text="ERROR", status=500)
 
         async def handle_get(request):
@@ -177,8 +217,14 @@ class TelegramWorkerBot:
         await site.start()
 
         webhook_url = f"{WEBHOOK_URL}/webhook"
-        await self.application.bot.set_webhook(webhook_url)
-        logger.info(f"Webhook встановлено: {webhook_url}")
+        
+        # Set webhook with better error handling
+        try:
+            result = await self.application.bot.set_webhook(webhook_url)
+            logger.info(f"Webhook встановлено: {webhook_url}, result: {result}")
+        except Exception as e:
+            logger.error(f"Error setting webhook: {e}")
+        
         logger.info("Бот запущено на webhook")
 
         # Keep running
