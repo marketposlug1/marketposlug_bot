@@ -108,8 +108,18 @@ class TelegramWorkerBot:
 
         elif stage == 'ask_additional':
             data['additional_info'] = text
-            await self.send_request(update, context, user_id)
-            del worker_responses[user_id]
+            worker_responses[user_id]['stage'] = 'ready_to_submit'
+            
+            # Create keyboard with submit button after additional info
+            keyboard = [
+                [InlineKeyboardButton("📤 Відправити заявку", callback_data="submit_request")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "Дякуємо за додаткову інформацію! Натисніть кнопку для відправки заявки:",
+                reply_markup=reply_markup
+            )
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -158,8 +168,45 @@ class TelegramWorkerBot:
                 # Fallback: send new message if editing fails
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
-                    text=f"Ви вибрали: {selected}\n\nДодаткова інформація або напишіть 'нема' для завершення:"
+                    text=f"Ви вибрали: {selected}\n\nНапишіть додаткову інформацію або натисніть кнопку для відправки заявки:",
+                    reply_markup=reply_markup
                 )
+
+        elif data == "submit_request":
+            logger.info(f"CALLBACK QUERY - User {user_id} submitting request")
+            
+            # If no additional info was provided, set default
+            if 'additional_info' not in worker_responses[user_id]['data']:
+                worker_responses[user_id]['data']['additional_info'] = "Не вказано"
+            
+            try:
+                # Send request to admin chat
+                await self.send_request_from_callback(query, context, user_id)
+                
+                # Remove user from responses
+                del worker_responses[user_id]
+                
+                await query.edit_message_text("✅ Ваша заявка успішно відправлена. Дякуємо!")
+                logger.info(f"CALLBACK QUERY - Successfully submitted request for user {user_id}")
+                
+            except Exception as e:
+                logger.error(f"CALLBACK QUERY - Error submitting request: {e}")
+                await query.edit_message_text("❌ Помилка відправки заявки. Спробуйте пізніше.")
+
+    async def send_request_from_callback(self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+        """Send request when called from callback query"""
+        data = worker_responses[user_id]['data']
+
+        message = (
+            f"📢 Нова заявка:\n"
+            f"👤 Ім'я: {data.get('name', '-')}\n"
+            f"🏗️ Об'єкт: {data.get('object', '-')}\n"
+            f"🧰 Матеріал/Інструмент: {data.get('material', '-')}\n"
+            f"⏰ Термін: {data.get('deadline', '-')}\n"
+            f"ℹ️ Додаткова інформація: {data.get('additional_info', '-')}"
+        )
+
+        await context.bot.send_message(ADMIN_CHAT_ID, message)
 
     async def send_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
         data = worker_responses[user_id]['data']
