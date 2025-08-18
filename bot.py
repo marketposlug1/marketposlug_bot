@@ -92,7 +92,7 @@ class TelegramWorkerBot:
         elif stage == 'ask_object':
             data['object'] = text
             worker_responses[user_id]['stage'] = 'ask_material'
-            await update.message.reply_text("Який матеріал/інструмент потрібен, яка кількість (бажано назва з інтернету)? 🧰")
+            await update.message.reply_text("Який матеріал або інструмент потрібен + кількість (назва з інтернету)? 🧰")
 
         elif stage == 'ask_material':
             data['material'] = text
