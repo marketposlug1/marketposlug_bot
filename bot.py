@@ -87,12 +87,12 @@ class TelegramWorkerBot:
         if stage == 'ask_name':
             data['name'] = text
             worker_responses[user_id]['stage'] = 'ask_object'
-            await update.message.reply_text("На який об'єкт потрібно матеріал/інструмент? 🏗️")
+            await update.message.reply_text("Адреса об'єкту 🏗️")
 
         elif stage == 'ask_object':
             data['object'] = text
             worker_responses[user_id]['stage'] = 'ask_material'
-            await update.message.reply_text("Який матеріал/інструмент потрібен? 🧰")
+            await update.message.reply_text("Який матеріал/інструмент потрібен, яка кількість (бажано назва з інтернету)? 🧰")
 
         elif stage == 'ask_material':
             data['material'] = text
@@ -104,7 +104,7 @@ class TelegramWorkerBot:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             logger.info(f"Sending keyboard to user {user_id}")
-            await update.message.reply_text("На коли це потрібно? ⏰", reply_markup=reply_markup)
+            await update.message.reply_text("Термін доставки оберіть варіант ⏰", reply_markup=reply_markup)
 
         elif stage == 'ask_additional':
             data['additional_info'] = text
